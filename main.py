@@ -1332,15 +1332,20 @@ async def consultar(req: ConsultaRequest) -> ConsultaResponse:
             detail="La consulta fue clasificada fuera del dominio de VITI-EXPERT.",
         )
 
-    if intencion in {"PRESCRIPCION", "CONSULTA_CARENCIA"}:
-        faltantes = [
-            campo for campo in ("id_lote", "dias_para_cosecha")
-            if datos_ext.get(campo) is None
-        ]
-        if faltantes:
+    # 1. Guardrail estricto para el Lote en todas las consultas
+    if intencion in {"DIAGNOSTICO_LOTE", "RIESGO_BIOCLIMATICO", "PRESCRIPCION", "CONSULTA_CARENCIA", "INTEGRAL_E2E"}:
+        if not datos_ext.get("id_lote"):
             raise HTTPException(
                 status_code=422,
-                detail=f"Faltan datos obligatorios para {intencion}: {', '.join(faltantes)}.",
+                detail="El lote indicado es ambiguo o no está registrado. Por favor, especificá claramente si es Lote Norte 1, Lote Sur 2 o Lote Oeste 3."
+            )
+            
+    # 2. Guardrail específico para prescripción
+    if intencion in {"PRESCRIPCION"}:
+        if datos_ext.get("dias_para_cosecha") is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Faltan datos obligatorios para PRESCRIPCION: dias_para_cosecha."
             )
 
     # Verificar que haya al menos un dato útil
