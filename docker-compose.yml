@@ -19,6 +19,8 @@ services:
       timeout: 10s
       retries: 10
     restart: unless-stopped
+    networks:
+      - vitiexpert_network
 
   api:
     build: .
@@ -35,7 +37,13 @@ services:
       neo4j:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - vitiexpert_network
 
 volumes:
   neo4j_data:
   neo4j_logs:
+
+networks:
+  vitiexpert_network:
+    driver: bridge

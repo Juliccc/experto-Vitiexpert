@@ -44,7 +44,6 @@ def test_extraccion_completa_claves_faltantes(monkeypatch):
 def test_pg3_diagnostico_cruza_diagnostico_y_riesgo():
     assert main.modulos_para_intencion("DIAGNOSTICO_LOTE") == [
         "DIAGNOSTICO_LOTE",
-        "RIESGO_BIOCLIMATICO",
     ]
 
 

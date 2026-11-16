@@ -27,6 +27,7 @@ import numpy as np
 import skfuzzy as fuzz
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from groq import Groq
 from neo4j import GraphDatabase
@@ -95,6 +96,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ---------------------------------------------------------------------------
 # 1. Modelos Pydantic
@@ -104,6 +113,7 @@ class ConsultaRequest(BaseModel):
         ...,
         min_length=5,
         max_length=4000,
+        strip_whitespace=True,
         description="Reporte coloquial del encargado de finca",
     )
 
@@ -492,7 +502,9 @@ CLAVES_EXTRACCION_UNIF = {
 }
 INTENCIONES_VALIDAS = {
     "DIAGNOSTICO_LOTE",
+    "RIESGO_BIOCLIMATICO",
     "PRESCRIPCION",
+    "INTEGRAL_E2E",
     "CONSULTA_CARENCIA",
     "FUERA_DE_DOMINIO",
 }
@@ -635,12 +647,10 @@ def llm_extraccion_unificada(mensaje: str, catalogo: dict) -> dict:
 def modulos_para_intencion(intencion: str) -> list[str]:
     """Define el flujo único y auditable del asistente PG3."""
     flujos = {
-        "DIAGNOSTICO_LOTE": ["DIAGNOSTICO_LOTE", "RIESGO_BIOCLIMATICO"],
-        "PRESCRIPCION": [
-            "DIAGNOSTICO_LOTE",
-            "RIESGO_BIOCLIMATICO",
-            "PRESCRIPCION",
-        ],
+        "DIAGNOSTICO_LOTE": ["DIAGNOSTICO_LOTE"],
+        "RIESGO_BIOCLIMATICO": ["DIAGNOSTICO_LOTE", "RIESGO_BIOCLIMATICO"],
+        "PRESCRIPCION": ["DIAGNOSTICO_LOTE", "RIESGO_BIOCLIMATICO", "PRESCRIPCION"],
+        "INTEGRAL_E2E": ["DIAGNOSTICO_LOTE", "RIESGO_BIOCLIMATICO", "PRESCRIPCION"],
         "CONSULTA_CARENCIA": ["PRESCRIPCION"],
         "FUERA_DE_DOMINIO": [],
     }
@@ -1196,24 +1206,22 @@ def modulo3_prescripcion(datos_ext: dict) -> dict:
 # 9. FASE 3 — Explicación Unificada (LLM) → Receta Agraria Digital
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT_EXPLICACION_UNIFICADO = """Eres el redactor de la respuesta unificada de VITI-EXPERT.
-Transforma la trazabilidad de los módulos realmente ejecutados en una respuesta breve, clara y
+Transforma la trazabilidad de los módulos ejecutados en una respuesta breve, clara y
 técnicamente rigurosa para el encargado de finca.
 
 REGLAS ESTRICTAS:
-1. BASAMENTO EXCLUSIVO EN EVIDENCIA: Usa ÚNICAMENTE los datos del JSON de trazabilidad. NUNCA inventes patologías, químicos, dosis, días de carencia, umbrales ni criterios no presentes en los datos.
+1. BASAMENTO EXCLUSIVO EN EVIDENCIA: Usa ÚNICAMENTE los datos del JSON de trazabilidad. NUNCA inventes patologías, químicos, dosis ni días de carencia.
 2. NO ALUCINES NÚMEROS: Cada número que menciones debe estar en el JSON de trazabilidad.
-3. PROHIBICIÓN DE AFIRMACIONES ABSOLUTAS: Habla de "diagnóstico presuntivo" o "hipótesis"; nunca afirmes certeza absoluta sobre la infección.
-4. FUENTE DE CARENCIA: Aclara que los días de carencia provienen de la Base de Conocimiento Neo4j (bibliografía de referencia), no son una verificación regulatoria vigente ante SENASA.
-5. RESPETA EL ENRUTAMIENTO: No describas módulos que no figuren en
-   orquestacion_pg3.modulos_ejecutados. No menciones que un módulo "no fue solicitado".
-6. EXTENSIÓN: Responde en un máximo de 180 palabras, sin tablas, sin repetir datos y sin
-   encabezados de informe formal. Usa solo estos encabezados, según corresponda:
-   **Respuesta**, **Riesgo**, **Tratamiento** y **Siguiente paso**.
+3. PROHIBICIÓN DE AFIRMACIONES ABSOLUTAS: Habla de "diagnóstico presuntivo" o "hipótesis".
+4. FUENTE DE CARENCIA: Si mencionas días de carencia, aclara que provienen de la Base de Conocimiento Neo4j, no de una verificación en línea ante SENASA.
+5. SILENCIO SOBRE MÓDULOS INACTIVOS: Si la trazabilidad no tiene datos de prescripción, NO menciones que el módulo faltó, no se solicitó o no se enrutó. Simplemente omite el tema por completo.
+6. ESTRUCTURA DINÁMICA: Responde en un máximo de 180 palabras, sin tablas. Usa SOLO los encabezados que tengan datos reales en el JSON:
+   - **Respuesta**: Para el diagnóstico presuntivo y el lote.
+   - **Riesgo**: SOLO si hay datos del dictamen bioclimático.
+   - **Tratamiento**: SOLO si hay una viabilidad agronómica y químico seleccionado.
+   - **Siguiente paso**: Una breve recomendación final (ej. "Verificar con un profesional" o "Aplicar respetando carencia").
 
-Para un diagnóstico, resume la patología candidata, el lote y el riesgo bioclimático en
-lenguaje natural. Para una prescripción, agrega únicamente el tratamiento y la advertencia
-regulatoria correspondiente. Si faltan datos, indícalo en una sola frase.
-Responde en español. Sin inventar nada que no esté en el JSON.
+Responde en español.
 """
 
 
